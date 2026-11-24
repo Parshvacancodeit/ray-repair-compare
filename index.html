@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ray Repair</title>
+<meta name="description" content="A recurrent neural denoiser for 1-sample-per-pixel path tracing in Unreal Engine 5.8. Drag to compare.">
+<meta property="og:title" content="Ray Repair">
+<meta property="og:description" content="Neural denoising of 1-spp path tracing in Unreal Engine 5.8. Drag to compare.">
+<meta property="og:image" content="img/hall_s3area_et.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: render-viewer page. Hero line, then the comparison as the centrepiece, then results, video, method, limits. Dark only, like a render viewport. */
+:root {
+  --bg: #0b0c0f;
+  --panel: #14161b;
+  --panel-2: #1a1d23;
+  --line: #262a32;
+  --fg: #eceef2;
+  --muted: #979dab;
+  --accent: #f2b84b;   /* sodium-lamp amber, taken from the hall's lamp */
+  --pill: rgba(8, 9, 12, 0.72);
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+img, video { max-width: 100%; }
+[hidden] { display: none !important; }
+.wrap {
+  max-width: 1440px; margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+section { padding-block: 56px 0; }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--accent);
+}
+h1, h2 { font-family: var(--font-display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(40px, 6vw, 76px); font-weight: 700; line-height: 1; }
+h2 { font-size: clamp(24px, 2.6vw, 32px); font-weight: 600; }
+p { margin: 0; }
+.lede { font-size: clamp(17px, 1.6vw, 20px); color: var(--muted); max-width: 62ch; }
+.lede b { color: var(--fg); font-weight: 500; }
+
+/* ---------- hero ---------- */
+.hero { padding-block: calc(env(safe-area-inset-top, 0px) + 44px) 28px; display: flex; flex-direction: column; gap: 14px; }
+
+/* ---------- viewer ---------- */
+.viewer {
+  position: relative; width: 100%; max-width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: ew-resize;
+  touch-action: pan-y;
+  user-select: none; -webkit-user-select: none;
+  box-shadow: 0 0 0 1px var(--line), 0 30px 80px -30px rgba(0,0,0,0.9);
+  --pos: 50%;
+}
+.layer { position: absolute; inset: 0; overflow: hidden; }
+.layer img {
+  position: absolute; inset: 0; width: 100%; height: 100%; max-width: none;
+  object-fit: cover; display: block;
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+  transform: scale(var(--zoom, 1));
+  transition: transform 280ms ease;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.layer.left { clip-path: inset(0 calc(100% - var(--pos)) 0 0); }
+.divider {
+  position: absolute; top: 0; bottom: 0; left: var(--pos);
+  width: 2px; margin-left: -1px; background: #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.25), 0 0 16px rgba(0,0,0,0.55);
+  pointer-events: none;
+}
+.handle {
+  position: absolute; top: 50%; left: var(--pos);
+  width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%;
+  background: #fff; color: #111;
+  display: grid; place-items: center;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.5);
+  outline: none; cursor: ew-resize;
+}
+.handle:focus-visible { box-shadow: 0 0 0 3px var(--accent), 0 6px 22px rgba(0,0,0,0.5); }
+.handle svg { width: 24px; height: 24px; }
+.label {
+  position: absolute; bottom: 18px;
+  font-size: clamp(11px, 1.1vw, 14px); font-weight: 500;
+  padding: 7px 13px; border-radius: 999px;
+  background: var(--pill); color: #fff;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: opacity 160ms ease;
+  pointer-events: none; white-space: nowrap;
+}
+.label.l { left: 18px; }
+.label.r { right: 18px; }
+.label .tag { font-family: var(--font-mono); font-size: 0.82em; color: var(--accent); margin-left: 6px; }
+.hint {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  font-size: 12.5px; padding: 6px 12px; border-radius: 999px;
+  background: var(--pill); color: #fff; pointer-events: none;
+  transition: opacity 400ms ease;
+}
+.loading {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  background: rgba(0,0,0,0.45); pointer-events: none;
+}
+
+.controls { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; margin-top: 16px; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.group-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button {
+  font: inherit; font-size: 13px; color: var(--muted);
+  background: transparent; border: 0; border-radius: 7px; padding: 6px 12px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 500; }
+.scenes { display: flex; flex-wrap: wrap; gap: 10px; }
+.scene {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  padding: 5px 14px 5px 5px; cursor: pointer;
+  font: inherit; font-size: 13.5px; color: var(--fg); text-align: left;
+}
+.scene img { width: 88px; height: 50px; object-fit: cover; border-radius: 6px; display: block; }
+.scene small { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.scene[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); }
+.seg button:focus-visible, .scene:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.viewer-note { margin-top: 12px; font-size: 13px; color: var(--muted); }
+kbd {
+  font-family: var(--font-mono); font-size: 11px;
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+  padding: 0 5px; color: var(--fg);
+}
+
+/* ---------- results ---------- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-top: 22px; }
+.stat { background: var(--panel); padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.stat .num { font-family: var(--font-display); font-size: clamp(30px, 3vw, 40px); font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat .num small { font-size: 0.5em; color: var(--muted); font-weight: 500; margin-left: 4px; }
+.stat .what { font-size: 14.5px; }
+.stat .src { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); margin-top: auto; padding-top: 8px; }
+
+/* ---------- video ---------- */
+.video-box { margin-top: 22px; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); background: #000; }
+.video-box video { display: block; width: 100%; height: auto; }
+.caption { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
+/* ---------- method + limits ---------- */
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 40px; margin-top: 22px; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; min-width: 0; }
+.steps li::before {
+  counter-increment: s; content: counter(s);
+  font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+  border: 1px solid var(--line); border-radius: 50%; width: 28px; height: 28px; display: grid; place-items: center;
+}
+.steps b, .limits b { font-weight: 500; }
+.steps span, .limits span { color: var(--muted); }
+.limits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.limits li { padding-left: 16px; border-left: 2px solid var(--line); }
+footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); color: var(--muted); font-size: 13px; font-family: var(--font-mono); }
+
+@media (max-width: 600px) {
+  .label { bottom: 10px; } .label.l { left: 10px; } .label.r { right: 10px; }
+  .handle { width: 38px; height: 38px; margin: -19px 0 0 -19px; }
+  .hint { display: none; }
+  section { padding-block: 40px 0; }
+}
+@media (prefers-reduced-motion: reduce) { .layer img { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">Unreal Engine 5.8 · path tracing at 1 sample per pixel</div>
+    <h1>Ray Repair</h1>
+    <p class="lede">A recurrent neural denoiser that turns <b>one path-traced sample per pixel</b> into a clean frame, running live inside Unreal Engine. Drag across the image to compare.</p>
+  </header>
+
+  <div class="viewer" id="viewer" role="group" aria-label="Before and after comparison">
+    <div class="layer right"><img id="imgRight" alt="" draggable="false"></div>
+    <div class="layer left"><img id="imgLeft" alt="" draggable="false"></div>
+    <div class="divider"></div>
+    <div class="handle" id="handle" role="slider" tabindex="0" aria-label="Comparison split"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l-6 6 6 6"/><path d="M15 6l6 6-6 6"/></svg>
+    </div>
+    <span class="hint" id="hint">Drag to compare · double-click to zoom</span>
+    <span class="label l" id="labelLeft">1 sample per pixel</span>
+    <span class="label r" id="labelRight">Denoised<span class="tag">Ray Repair</span></span>
+    <div class="loading" id="loading" hidden>loading frame…</div>
+  </div>
+
+  <div class="controls">
+    <div class="group">
+      <span class="group-label">Scene</span>
+      <div class="scenes" id="scenes"></div>
+    </div>
+    <div class="group">
+      <span class="group-label">Left side</span>
+      <div class="seg" id="leftMode">
+        <button type="button" id="modeNoisy" data-mode="noisy" aria-pressed="true">1 spp input</button>
+        <button type="button" id="modeRef" data-mode="reference" aria-pressed="false">128 spp reference</button>
+      </div>
+      <span class="group-label">Zoom</span>
+      <div class="seg" id="zoomSeg">
+        <button type="button" id="zoom1" data-zoom="1" aria-pressed="true">1×</button>
+        <button type="button" id="zoom2" data-zoom="2" aria-pressed="false">2×</button>
+        <button type="button" id="zoom4" data-zoom="4" aria-pressed="false">4×</button>
+      </div>
+    </div>
+  </div>
+  <p class="viewer-note">Frames from the LS_Imidera sequence, rendered by Unreal's path tracer at 1920×1080. Both sides share the same exposure and tonemapping. Use <kbd>←</kbd> <kbd>→</kbd> on the handle for fine steps.</p>
+
+  <section>
+    <div class="eyebrow">Results</div>
+    <h2>Measured, not eyeballed</h2>
+    <div class="stats">
+      <div class="stat">
+        <div class="num">~90%</div>
+        <div class="what">of the 1-spp grain removed</div>
+        <div class="src">offline, LS_Imidera frames 404–429</div>
+      </div>
+      <div class="stat">
+        <div class="num">~30<small>fps</small></div>
+        <div class="what">at 1920×1080, live in Unreal</div>
+        <div class="src">UE 5.8, RTX 3060 Ti, median 29.8 ms</div>
+      </div>
+      <div class="stat">
+        <div class="num">0.71 → 0.98</div>
+        <div class="what">red kept after our colour fix (output / input)</div>
+        <div class="src">UE dump, same frame, before / after</div>
+      </div>
+      <div class="stat">
+        <div class="num">12<small>ms</small> vs 94<small>ms</small></div>
+        <div class="what">network at 1/3 resolution vs full, and higher quality</div>
+        <div class="src">A40, PyTorch, NoiseBase Test8</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">In motion</div>
+    <h2>236 consecutive frames</h2>
+    <div class="video-box">
+      <video src="media/wipe.mp4" poster="media/wipe_poster.jpg" autoplay muted loop playsinline controls preload="metadata"></video>
+    </div>
+    <p class="caption">The shipped model run on the same Unreal frames the engine produces, with the split sweeping across.</p>
+  </section>
+
+  <section>
+    <div class="two">
+      <div>
+        <div class="eyebrow">How it works</div>
+        <h2>One frame, four steps</h2>
+        <ol class="steps" style="margin-top:20px">
+          <li><div><b>Read the frame.</b> <span>Noisy colour plus clean guide buffers from Unreal: base colour, normals, depth and camera motion.</span></div></li>
+          <li><div><b>Work at 1/3 resolution.</b> <span>Averaging 3×3 pixels gives the network nine samples per input pixel, which is both faster and cleaner.</span></div></li>
+          <li><div><b>Denoise with memory.</b> <span>A recurrent U-Net carries its state from frame to frame, warped along the motion, so the result stays steady.</span></div></li>
+          <li><div><b>Restore detail and colour.</b> <span>Lighting is upsampled and multiplied by the full-resolution textures, then a tile-wise colour correction keeps the original hues.</span></div></li>
+        </ol>
+      </div>
+      <div>
+        <div class="eyebrow">Known limits</div>
+        <h2>Where it still struggles</h2>
+        <ul class="limits" style="margin-top:20px">
+          <li><b>Very dark interiors.</b> <span>When almost no pixel catches light, the output can show soft dark smudges.</span></li>
+          <li><b>Fine lighting detail.</b> <span>Sharp shadow edges and mirror reflections come out softer than in the reference.</span></li>
+          <li><b>Sky edges.</b> <span>A faint bright halo can appear where buildings meet a bright sky.</span></li>
+          <li><b>Speed.</b> <span>About 30 fps today on a mid-range GPU; an FP16 version is the next step toward 60.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Model rayrepair_motion_s3area_et · trained on NoiseBase · evaluated on Unreal Engine frames (LS_Imidera)
+  </footer>
+</div>
+
+<script>
+(function () {
+  var SCENES = [
+    { id: "hall", name: "Arcade hall", frame: 425, thumb: "img/hall_thumb.jpg",
+      noisy: "img/hall_noisy.jpg", ours: "img/hall_s3area_et.jpg", reference: "img/hall_reference.jpg" },
+    { id: "rooftops", name: "Rooftops", frame: 620, thumb: "img/rooftops_thumb.jpg",
+      noisy: "img/rooftops_noisy.jpg", ours: "img/rooftops_s3area_et.jpg", reference: "img/rooftops_reference.jpg" }
+  ];
+
+  var viewer = document.getElementById("viewer");
+  var handle = document.getElementById("handle");
+  var imgL = document.getElementById("imgLeft");
+  var imgR = document.getElementById("imgRight");
+  var labelL = document.getElementById("labelLeft");
+  var labelR = document.getElementById("labelRight");
+  var hint = document.getElementById("hint");
+  var loading = document.getElementById("loading");
+  var scenesEl = document.getElementById("scenes");
+  var state = { scene: 0, left: "noisy", pos: 50, zoom: 1, ox: 50, oy: 50 };
+
+  function setPos(p) {
+    state.pos = Math.max(0, Math.min(100, p));
+    viewer.style.setProperty("--pos", state.pos + "%");
+    handle.setAttribute("aria-valuenow", String(Math.round(state.pos)));
+    labelL.style.opacity = state.pos < 14 ? 0 : 1;
+    labelR.style.opacity = state.pos > 86 ? 0 : 1;
+  }
+  function setZoom(z, ox, oy) {
+    state.zoom = z;
+    if (ox != null) { state.ox = ox; state.oy = oy; }
+    viewer.style.setProperty("--zoom", z);
+    viewer.style.setProperty("--ox", state.ox + "%");
+    viewer.style.setProperty("--oy", state.oy + "%");
+    var bs = document.querySelectorAll("#zoomSeg button");
+    for (var i = 0; i < bs.length; i++) bs[i].setAttribute("aria-pressed", String(Number(bs[i].getAttribute("data-zoom")) === z));
+  }
+  function leftLabel() { return state.left === "noisy" ? "1 sample per pixel" : "128 spp reference"; }
+  function load(img, src, done) {
+    img.onload = done; img.onerror = done;
+    img.src = src;
+    if (img.complete && img.naturalWidth) done();
+  }
+  function show(i) {
+    state.scene = i;
+    var s = SCENES[i], pending = 2;
+    loading.hidden = false;
+    var finished = false;
+    function done() { if (--pending <= 0 && !finished) { finished = true; loading.hidden = true; } }
+    load(imgR, s.ours, done);
+    load(imgL, s[state.left], done);
+    labelL.firstChild.nodeValue = leftLabel();
+    var bs = document.querySelectorAll(".scene");
+    for (var k = 0; k < bs.length; k++) bs[k].setAttribute("aria-pressed", String(k === i));
+  }
+
+  SCENES.forEach(function (s, i) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "scene"; b.id = "scene-" + s.id;
+    b.setAttribute("aria-pressed", "false");
+    b.innerHTML = '<img alt="" src="' + s.thumb + '"><span>' + s.name + '<small>frame ' + s.frame + '</small></span>';
+    b.addEventListener("click", function () { show(i); });
+    scenesEl.appendChild(b);
+  });
+
+  var dragging = false, touched = false;
+  function posFromEvent(e) {
+    var r = viewer.getBoundingClientRect();
+    return ((e.clientX - r.left) / r.width) * 100;
+  }
+  function firstTouch() { if (!touched) { touched = true; hint.style.opacity = 0; } }
+  viewer.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;
+    dragging = true; firstTouch();
+    try { viewer.setPointerCapture(e.pointerId); } catch (err) {}
+    setPos(posFromEvent(e));
+  });
+  viewer.addEventListener("pointermove", function (e) { if (dragging) setPos(posFromEvent(e)); });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (t) {
+    viewer.addEventListener(t, function () { dragging = false; });
+  });
+  viewer.addEventListener("dblclick", function (e) {
+    var r = viewer.getBoundingClientRect();
+    setZoom(state.zoom === 1 ? 2 : 1, ((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100);
+  });
+  handle.addEventListener("keydown", function (e) {
+    var step = e.shiftKey ? 10 : 2;
+    if (e.key === "ArrowLeft") { setPos(state.pos - step); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { setPos(state.pos + step); e.preventDefault(); }
+    else if (e.key === "Home") { setPos(0); e.preventDefault(); }
+    else if (e.key === "End") { setPos(100); e.preventDefault(); }
+    firstTouch();
+  });
+  var modeBtns = document.querySelectorAll("#leftMode button");
+  for (var m = 0; m < modeBtns.length; m++) {
+    modeBtns[m].addEventListener("click", function () {
+      state.left = this.getAttribute("data-mode");
+      for (var x = 0; x < modeBtns.length; x++) modeBtns[x].setAttribute("aria-pressed", String(modeBtns[x] === this));
+      imgL.src = SCENES[state.scene][state.left];
+      labelL.firstChild.nodeValue = leftLabel();
+    });
+  }
+  var zoomBtns = document.querySelectorAll("#zoomSeg button");
+  for (var z = 0; z < zoomBtns.length; z++) {
+    zoomBtns[z].addEventListener("click", function () { setZoom(Number(this.getAttribute("data-zoom"))); });
+  }
+
+  setPos(50); setZoom(1, 50, 50); show(0);
+
+  window.addEventListener("load", function () {
+    SCENES.forEach(function (s) { [s.noisy, s.ours, s.reference].forEach(function (u) { var im = new Image(); im.src = u; }); });
+  });
+
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduce) {
+    var t0 = null, dur = 2400;
+    var step = function (ts) {
+      if (touched) return;
+      if (t0 === null) t0 = ts;
+      var t = Math.min(1, (ts - t0) / dur);
+      setPos(50 + 24 * Math.sin(t * Math.PI * 2) * (1 - t));
+      if (t < 1) requestAnimationFrame(step);
+    };
+    setTimeout(function () { requestAnimationFrame(step); }, 800);
+  }
+})();
+</script>
+</body>
+</html>
