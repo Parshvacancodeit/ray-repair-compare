@@ -59,6 +59,9 @@ p { margin: 0; }
 .hero { padding-block: calc(env(safe-area-inset-top, 0px) + 64px) 32px; display: flex; flex-direction: column; gap: 12px; }
 
 /* ---------- viewer ---------- */
+/* the comparison is sized to fit the screen height, so the whole frame is always visible */
+.stage { width: min(100%, 820px, calc(60vh * 16 / 9)); margin-inline: auto; }
+@media (max-width: 600px) { .stage { width: 100%; } }
 .viewer {
   position: relative; width: 100%; max-width: 100%;
   aspect-ratio: 16 / 9;
@@ -195,6 +198,7 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
     <p class="lede">A recurrent neural denoiser that turns <b>one path-traced sample per pixel</b> into a clean frame, running live inside Unreal Engine. Drag across the image to compare.</p>
   </header>
 
+  <div class="stage">
   <div class="viewer" id="viewer" role="group" aria-label="Before and after comparison">
     <div class="layer right"><img id="imgRight" alt="" draggable="false"></div>
     <div class="layer left"><img id="imgLeft" alt="" draggable="false"></div>
@@ -229,6 +233,7 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
     </div>
   </div>
   <p class="viewer-note">Frames from the LS_Imidera sequence, rendered by Unreal's path tracer at 1920×1080. Both sides share the same exposure and tonemapping. Use <kbd>←</kbd> <kbd>→</kbd> on the handle for fine steps.</p>
+  </div>
 
   <section>
     <div class="eyebrow">Results</div>
