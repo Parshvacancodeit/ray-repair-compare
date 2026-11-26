@@ -219,11 +219,6 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
       <div class="scenes" id="scenes"></div>
     </div>
     <div class="group">
-      <span class="group-label">Left side</span>
-      <div class="seg" id="leftMode">
-        <button type="button" id="modeNoisy" data-mode="noisy" aria-pressed="true">1 spp input</button>
-        <button type="button" id="modeRef" data-mode="reference" aria-pressed="false">128 spp reference</button>
-      </div>
       <span class="group-label">Zoom</span>
       <div class="seg" id="zoomSeg">
         <button type="button" id="zoom1" data-zoom="1" aria-pressed="true">1×</button>
@@ -288,7 +283,7 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
         <h2>Where it still struggles</h2>
         <ul class="limits" style="margin-top:20px">
           <li><b>Very dark interiors.</b> <span>When almost no pixel catches light, the output can show soft dark smudges.</span></li>
-          <li><b>Fine lighting detail.</b> <span>Sharp shadow edges and mirror reflections come out softer than in the reference.</span></li>
+          <li><b>Fine lighting detail.</b> <span>Sharp shadow edges and mirror reflections come out softer than in a fully converged render.</span></li>
           <li><b>Sky edges.</b> <span>A faint bright halo can appear where buildings meet a bright sky.</span></li>
           <li><b>Speed.</b> <span>About 30 fps today on a mid-range GPU; an FP16 version is the next step toward 60.</span></li>
         </ul>
@@ -305,9 +300,9 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
 (function () {
   var SCENES = [
     { id: "hall", name: "Arcade hall", frame: 425, thumb: "img/hall_thumb.jpg",
-      noisy: "img/hall_noisy.jpg", ours: "img/hall_s3area_et.jpg", reference: "img/hall_reference.jpg" },
+      noisy: "img/hall_noisy.jpg", ours: "img/hall_s3area_et.jpg" },
     { id: "rooftops", name: "Rooftops", frame: 620, thumb: "img/rooftops_thumb.jpg",
-      noisy: "img/rooftops_noisy.jpg", ours: "img/rooftops_s3area_et.jpg", reference: "img/rooftops_reference.jpg" }
+      noisy: "img/rooftops_noisy.jpg", ours: "img/rooftops_s3area_et.jpg" }
   ];
 
   var viewer = document.getElementById("viewer");
@@ -337,7 +332,7 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
     var bs = document.querySelectorAll("#zoomSeg button");
     for (var i = 0; i < bs.length; i++) bs[i].setAttribute("aria-pressed", String(Number(bs[i].getAttribute("data-zoom")) === z));
   }
-  function leftLabel() { return state.left === "noisy" ? "1 sample per pixel" : "128 spp reference"; }
+  function leftLabel() { return "1 sample per pixel"; }
   function load(img, src, done) {
     img.onload = done; img.onerror = done;
     img.src = src;
@@ -393,15 +388,6 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
     else if (e.key === "End") { setPos(100); e.preventDefault(); }
     firstTouch();
   });
-  var modeBtns = document.querySelectorAll("#leftMode button");
-  for (var m = 0; m < modeBtns.length; m++) {
-    modeBtns[m].addEventListener("click", function () {
-      state.left = this.getAttribute("data-mode");
-      for (var x = 0; x < modeBtns.length; x++) modeBtns[x].setAttribute("aria-pressed", String(modeBtns[x] === this));
-      imgL.src = SCENES[state.scene][state.left];
-      labelL.firstChild.nodeValue = leftLabel();
-    });
-  }
   var zoomBtns = document.querySelectorAll("#zoomSeg button");
   for (var z = 0; z < zoomBtns.length; z++) {
     zoomBtns[z].addEventListener("click", function () { setZoom(Number(this.getAttribute("data-zoom"))); });
@@ -410,7 +396,7 @@ footer { padding-block: 64px calc(env(safe-area-inset-bottom, 0px) + 40px); colo
   setPos(50); setZoom(1, 50, 50); show(0);
 
   window.addEventListener("load", function () {
-    SCENES.forEach(function (s) { [s.noisy, s.ours, s.reference].forEach(function (u) { var im = new Image(); im.src = u; }); });
+    SCENES.forEach(function (s) { [s.noisy, s.ours].forEach(function (u) { var im = new Image(); im.src = u; }); });
   });
 
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
